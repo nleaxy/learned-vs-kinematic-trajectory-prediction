@@ -224,3 +224,5 @@ data/
 *.pt
 *.ckpt
 .env
+
+download_train.txt
