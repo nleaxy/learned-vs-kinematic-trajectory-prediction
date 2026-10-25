@@ -3,3 +3,4 @@ pandas
 pyarrow
 torch
 matplotlib
+pyyaml

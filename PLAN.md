@@ -1,6 +1,7 @@
 # Pre-experiment plan
 
-Fixed on: 2026-10-14, before any results were obtained.
+Version 2, fixed on: 2026-10-26, before any data were processed.
+Version 1 was fixed on 2026-10-14 (commit `59e0891`, tag `protocol-v1`). Changes in version 2 are listed at the end. The plan is not edited after the first model is trained.
 
 ## Research questions
 - RQ1: How does RNN prediction accuracy change as history frequency drops from 10 to 1 Hz?
@@ -12,14 +13,52 @@ Fixed on: 2026-10-14, before any results were obtained.
 - H2: At 2 and 1 Hz, the RNN advantage over the best kinematic model (CV/CA) is <5% on straight (Δψ < 15°) and >5% on turning (Δψ > 45°) trajectories.
 - H3: At 2 and 1 Hz, the 10 Hz model is worse than the model trained at the matching frequency by >5%.
 
-## Setup
-- Data: Argoverse 2 Motion Forecasting, focal agent only, no maps/neighbours. History 5 s, horizon 6 s. Train 50,000 / val 5,000 scenarios from official train; test = official validation. Only scenarios with all 110 steps observed.
-- Factor: history frequency 10 / 5 / 2 / 1 Hz (main: fixed 5 s window; additional: fixed 5 points).
-- Models: CV, CA, RNN per frequency; 10 Hz RNN on downsampled inputs (linear interpolation; ablation: last-value repeat, raw sparse input).
-- Hyperparameters: grid hidden {64,128} × lr {1e-3, 3e-4} per frequency, selected on validation with one seed.
-- Metrics: ADE (primary), FDE, MR@2m. Subgroups: agent type; straight / turning; intermediate (15–45°) reported separately. Groups <300 scenarios reported descriptively.
+## Data
+- Argoverse 2 Motion Forecasting, focal agent only, no maps or neighbours. History 5 s (50 points), horizon 6 s (60 points), 10 Hz.
+- Test = official test split (24,984 scenarios): 5 s histories from the scenario files, 60 future steps from the single-agent test annotations released by the dataset authors (`av2_mf_focal_test_annotations.parquet`, downloaded on 2026-10-26). The official validation split is not used. The test choice is final.
+- Train and val come from `configs/train_subset.txt` (60,000 ids from official train, seed 42). After the 110-step filter, the list is shuffled with seed 42: first 5,000 = val, next 50,000 = train.
+- `configs/train_ids.txt`, `configs/val_ids.txt`, `configs/test_ids.txt` and `configs/norm_stats.json` are committed before any training.
+
+## Frequency conditions
+- Downsampling by k = 1, 2, 5, 10 (10, 5, 2, 1 Hz): every k-th point counting back from the last observed point (t = 0), no low-pass filter. Retained points at t = -m·k·0.1 s.
+- Main mode: all retained points of the 5 s window. 50 / 25 / 10 / 5 points, span 4.9 / 4.8 / 4.5 / 4.0 s.
+- Additional mode: last 5 retained points. Span 0.4 / 0.8 / 2.0 / 4.0 s.
+
+## Models
+- CV and CA from finite differences of the last 2 or 3 retained points.
+- RNN per frequency and mode: 1-layer LSTM, linear decoder on the last hidden state, all 60 future points at once.
+- Input frame: origin at the point at t = 0, rotated by the dataset heading of this point. The point is kept in every condition; the heading is used only for the rotation and is not an input feature.
+- 10 Hz RNN on sparse inputs: linear interpolation back to the 10 Hz grid (main); zero-order hold and naive sparse input (mini-ablation). Grid steps before the first retained point copy it.
+- No model gets the time step as input. Every batch holds sequences of equal length, no padding. The naive input changes the grid and the time step at once and is interpreted that way.
+
+## Training
+- All settings in `configs/train.yaml`: Adam, batch 256, loss = ADE, max 50 epochs, patience 5, final weights from the epoch with the lowest val ADE.
+- Inputs standardized per coordinate with mean and std of the 10 Hz train histories, same values for all models; targets in meters.
+- Grid hidden {64, 128} × lr {1e-3, 3e-4} per frequency, selected on val with seed 0 (not reused).
+- Main runs: seeds 1–5. If the sample std of val ADE over seeds 1–5 exceeds 2% of the mean at any frequency of the main mode, all four main-mode frequencies get seeds 6–10. Decided on val only, before any test evaluation. Additional mode at 10, 5, 2 Hz: main-mode hyperparameters, seeds 1–3. At 1 Hz both modes hold the same five points, so the additional mode reuses the main-mode models and results; no separate training.
+
+## Metrics and groups
+- ADE (primary), FDE, MR@2m.
+- Road user types: vehicle (incl. bus), pedestrian, two-wheeler.
+- Motion types from the 10 Hz ground truth: stationary (future path < 1 m), straight (Δψ < 15°), turn (Δψ > 45°), intermediate (15–45°). Diagnostic grouping only: it uses the future and is unknown at prediction time.
 
 ## Statistics
-- 5 seeds (10 if seed spread >2%).
-- Paired bootstrap over scenarios; 8 main comparisons, Bonferroni correction.
-- Decision by position of the confidence interval of the relative difference against the threshold.
+- Per-scenario errors are saved for every run (seed) separately.
+- Two-way bootstrap (Owen 2007, pigeonhole bootstrap), 10,000 resamples: one scenario draw per resample, shared by all models; seeds drawn separately for each independently trained RNN; the 10 Hz model on sparse inputs reuses the seed draw of the 10 Hz model. Δ, A, E computed from resample means. Percentile intervals. Group intervals resample scenarios within the group.
+- 8 primary comparisons on all road user types together: H1 at 5 and 1 Hz, H2 straight and turn at 2 and 1 Hz, H3 at 2 and 1 Hz. Bonferroni level 1 - 0.05/8.
+- Each comparison is a part of its hypothesis: supported (interval fully on the stated side), contradicted (fully on the other side), inconclusive (crosses the threshold). A hypothesis is accepted only if all its parts are supported, otherwise partly supported (at least one part) or not supported.
+- Groups below 300 test scenarios are descriptive. If the straight or the turn group is below 300, its H2 parts are descriptive and H2 cannot be accepted as a whole; Bonferroni still assumes 8 comparisons.
+- Road user types are secondary (95% intervals); statements about a hypothesis only for types with at least 300 test scenarios.
+- Minimum sufficient frequency is a separate applied criterion, not one of the 8 comparisons: the lowest tested f with the upper 95% bound of Δ below 5% at f and at every tested frequency between f and 10 Hz. If none below 10 Hz qualifies, the result is that no tested reduction is sufficient.
+
+## Changes in version 2 (supervisor review and our own check, before any data were processed)
+1. Time axis: retained times and spans written out for every condition.
+2. 10 Hz model on sparse inputs: padding, batching and the missing time-step input described.
+3. Bootstrap: version 1 averaged errors over seeds and resampled scenarios only; version 2 resamples scenarios and seeds.
+4. Decision rules for multi-part hypotheses and small groups written out.
+5. Motion types declared a diagnostic grouping.
+6. Training settings fixed in `configs/train.yaml`; seed rule and seed numbers specified.
+7. Minimum sufficient frequency declared a separate criterion; condition on all higher frequencies; case with no sufficient frequency.
+8. Test split: version 1 used the official validation split because the test futures were assumed to be withheld. The dataset authors have released the test annotations, so the test set is now the official test split. Split rule for the 60,000-scenario subset written out.
+9. Use of the heading at t = 0 written out.
+10. At 1 Hz the additional mode reuses the main-mode models (supervisor review, 20 Oct).

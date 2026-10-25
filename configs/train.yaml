@@ -1,0 +1,57 @@
+# training protocol v2, frozen before the main runs
+
+data:
+  subset_list: configs/train_subset.txt
+  split_seed: 42
+  n_val: 5000
+  n_train: 50000
+  val_ids: configs/val_ids.txt
+  train_ids: configs/train_ids.txt
+  test_ids: configs/test_ids.txt
+  history_points: 50
+  future_points: 60
+
+# k for 10, 5, 2, 1 Hz
+downsample_k: [1, 2, 5, 10]
+modes: [window, last5]
+
+normalization:
+  frame: agent  # origin at last observed point, x along heading at t 0
+  inputs: zscore  # per coordinate, stats from 10 Hz train histories
+  stats_file: configs/norm_stats.json
+  targets: meters
+
+model:
+  rnn: lstm
+  num_layers: 1
+  decoder: linear
+  input_size: 2
+  output_points: 60
+
+training:
+  optimizer: adam
+  batch_size: 256
+  loss: ade
+  max_epochs: 50
+  patience: 5
+  checkpoint: best_val_ade
+  shuffle_each_epoch: true
+  deterministic: true
+
+grid:
+  hidden_size: [64, 128]
+  lr: [0.001, 0.0003]
+  seed: 0
+
+seeds:
+  main: [1, 2, 3, 4, 5]
+  extra: [6, 7, 8, 9, 10]
+  last5_mode: [1, 2, 3]
+  # at 1 Hz last5 equals window, main mode models are reused
+  last5_reuse_main_k: [10]
+  # extra seeds go to all four frequencies if val ADE std over main seeds is above this share of the mean at any of them
+  extra_rule_cv: 0.02
+
+sparse_input_for_10hz:
+  variants: [linear, zero_order_hold, naive]
+  before_first_point: copy_first
