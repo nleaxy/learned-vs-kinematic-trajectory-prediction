@@ -25,7 +25,7 @@ def heading_change(xy, heading, min_dist=0.5):
     return dpsi, np.linalg.norm(v, axis=1)
 
 
-def motion_type(xy, heading, straight=15, turn=45, min_path=1.0, min_dist=0.5):
+def motion_type(xy, heading, straight=15, turn=45, min_path=1.0, min_dist=2.0):
     path = np.linalg.norm(np.diff(xy[:, LAST_OBS:], axis=1), axis=2).sum(1)
     dpsi, stretch = heading_change(xy, heading, min_dist)
     out = np.where(dpsi < straight, "straight", np.where(dpsi > turn, "turn", "intermediate")).astype(object)
