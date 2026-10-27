@@ -1,7 +1,7 @@
 # Pre-experiment plan
 
-Version 2, fixed on: 2026-10-26, before any data were processed.
-Version 1 was fixed on 2026-10-14 (commit `59e0891`, tag `protocol-v1`). Changes in version 2 are listed at the end. The plan is not edited after the first model is trained.
+Version 3, fixed on: 2026-10-27, after data processing and before any model was trained.
+Version 2 was fixed on 2026-10-26 (commit `82ce880`, tag `protocol-v2`) and version 1 on 2026-10-14 (commit `59e0891`, tag `protocol-v1`), both before any data were processed. Changes are listed at the end. After the timing run the plan changes only as described under Training, and after the first main run it is not edited.
 
 ## Research questions
 - RQ1: How does RNN prediction accuracy change as history frequency drops from 10 to 1 Hz?
@@ -36,11 +36,13 @@ Version 1 was fixed on 2026-10-14 (commit `59e0891`, tag `protocol-v1`). Changes
 - Inputs standardized per coordinate with mean and std of the 10 Hz train histories, same values for all models; targets in meters.
 - Grid hidden {64, 128} × lr {1e-3, 3e-4} per frequency, selected on val with seed 0 (not reused).
 - Main runs: seeds 1–5. If the sample std of val ADE over seeds 1–5 exceeds 2% of the mean at any frequency of the main mode, all four main-mode frequencies get seeds 6–10. Decided on val only, before any test evaluation. Additional mode at 10, 5, 2 Hz: main-mode hyperparameters, seeds 1–3. At 1 Hz both modes hold the same five points, so the additional mode reuses the main-mode models and results; no separate training.
+- Timing run before the main runs: main mode at 10 Hz, hidden 128, lr 1e-3, seed 0, 2,000 train scenarios, full val, at most 50 epochs. It checks that training works and measures time per epoch; its numbers are not reported. If the projected time of all runs does not fit before 2026-11-03, reductions are made in this order and recorded as version 4 before the main runs: (1) drop the additional mode; (2) use the hyperparameters selected at 10 Hz for all frequencies. Nothing else is changed on this basis.
 
 ## Metrics and groups
 - ADE (primary), FDE, MR@2m.
 - Road user types: vehicle (incl. bus), pedestrian, two-wheeler.
-- Motion types from the 10 Hz ground truth: stationary (future path < 1 m), straight (Δψ < 15°), turn (Δψ > 45°), intermediate (15–45°). Diagnostic grouping only: it uses the future and is unknown at prediction time.
+- Motion types from the 10 Hz ground truth: stationary (future path < 1 m); undefined (no future point at least 2 m from the final position); otherwise Δψ is the angle between the dataset heading at t = 0 and the direction from the last future point at least 2 m from the final position to the final position: straight (Δψ < 15°), turn (Δψ > 45°), intermediate (15–45°). Only straight and turn agents are used in H2. Diagnostic grouping only: it uses the future and is unknown at prediction time.
+- Quality control: 100 random test trajectories per motion type plotted (`figures/qc`), doubtful panels re-plotted in meters (`src/qc_zoom.py`), result in `results/qc_check.csv`.
 
 ## Statistics
 - Per-scenario errors are saved for every run (seed) separately.
@@ -62,3 +64,7 @@ Version 1 was fixed on 2026-10-14 (commit `59e0891`, tag `protocol-v1`). Changes
 8. Test split: version 1 used the official validation split because the test futures were assumed to be withheld. The dataset authors have released the test annotations, so the test set is now the official test split. Split rule for the 60,000-scenario subset written out.
 9. Use of the heading at t = 0 written out.
 10. At 1 Hz the additional mode reuses the main-mode models (supervisor review, 20 Oct).
+
+## Changes in version 3 (after data processing, before any model was trained)
+1. Motion types: the direction at t = 0 is the dataset heading (version 2: displacement over the last 0.5 s of history, not defined for slow agents). The final direction uses the last 2 m of the future path (version 2: displacement over the last 0.5 s of the future). The quality check on 2026-10-27 showed that a short final stretch assigns stopped vehicles to turns when their recorded position drifts backward. A new group, undefined, holds agents without a 2 m final stretch and is not used in H2.
+2. Timing run and the order of possible reductions written out.

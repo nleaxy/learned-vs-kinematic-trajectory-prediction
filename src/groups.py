@@ -12,7 +12,7 @@ def road_user_group(types):
     return np.array([GROUPS.get(t, "other") for t in types])
 
 
-def heading_change(xy, heading, min_dist=0.5):
+def heading_change(xy, heading, min_dist=2.0):
     # start direction is the dataset heading at t 0, end direction is the last stretch of at least min_dist meters
     fut = xy[:, LAST_OBS:]
     end = fut[:, -1]
