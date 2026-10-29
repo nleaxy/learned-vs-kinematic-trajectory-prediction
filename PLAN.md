@@ -1,7 +1,7 @@
 # Pre-experiment plan
 
-Version 3, fixed on: 2026-10-27, after data processing and before any model was trained.
-Version 2 was fixed on 2026-10-26 (commit `82ce880`, tag `protocol-v2`) and version 1 on 2026-10-14 (commit `59e0891`, tag `protocol-v1`), both before any data were processed. Changes are listed at the end. After the timing run the plan changes only as described under Training, and after the first main run it is not edited.
+Version 4, fixed on: 2026-10-29, after a timing run and before the main runs.
+Version 3 was fixed on 2026-10-27 (commit `4984b3b`, tag `protocol-v3`) after data processing and before any model was trained; version 2 on 2026-10-26 (commit `82ce880`, tag `protocol-v2`) and version 1 on 2026-10-14 (commit `59e0891`, tag `protocol-v1`), both before any data were processed. Changes are listed at the end. After the first main run the plan is not edited.
 
 ## Research questions
 - RQ1: How does RNN prediction accuracy change as history frequency drops from 10 to 1 Hz?
@@ -27,13 +27,13 @@ Version 2 was fixed on 2026-10-26 (commit `82ce880`, tag `protocol-v2`) and vers
 ## Models
 - CV and CA from finite differences of the last 2 or 3 retained points.
 - RNN per frequency and mode: 1-layer LSTM, linear decoder on the last hidden state, all 60 future points at once.
-- Input frame: origin at the point at t = 0, rotated by the dataset heading of this point. The point is kept in every condition; the heading is used only for the rotation and is not an input feature.
+- Input frame: origin at the point at t = 0, rotated by the dataset heading of this point. The point is kept in every condition; the heading is used only for the rotation and is not an input feature. Input features per retained point: position (x, y) and the step from the previous retained point (dx, dy), zero for the first point. For the 10 Hz model on sparse inputs the steps are computed after the grid is restored; with the naive input they span k·0.1 s.
 - 10 Hz RNN on sparse inputs: linear interpolation back to the 10 Hz grid (main); zero-order hold and naive sparse input (mini-ablation). Grid steps before the first retained point copy it.
 - No model gets the time step as input. Every batch holds sequences of equal length, no padding. The naive input changes the grid and the time step at once and is interpreted that way.
 
 ## Training
-- All settings in `configs/train.yaml`: Adam, batch 256, loss = ADE, max 50 epochs, patience 5, final weights from the epoch with the lowest val ADE.
-- Inputs standardized per coordinate with mean and std of the 10 Hz train histories, same values for all models; targets in meters.
+- All settings in `configs/train.yaml`: Adam, batch 256, loss = ADE, max 50 epochs, patience 5 with no early stop in the first 10 epochs, final weights from the epoch with the lowest val ADE.
+- Inputs standardized per feature with mean and std of the train histories of the same frequency and mode; the 10 Hz model on sparse inputs keeps the 10 Hz values. Targets in meters.
 - Grid hidden {64, 128} × lr {1e-3, 3e-4} per frequency, selected on val with seed 0 (not reused).
 - Main runs: seeds 1–5. If the sample std of val ADE over seeds 1–5 exceeds 2% of the mean at any frequency of the main mode, all four main-mode frequencies get seeds 6–10. Decided on val only, before any test evaluation. Additional mode at 10, 5, 2 Hz: main-mode hyperparameters, seeds 1–3. At 1 Hz both modes hold the same five points, so the additional mode reuses the main-mode models and results; no separate training.
 - Timing run before the main runs: main mode at 10 Hz, hidden 128, lr 1e-3, seed 0, 2,000 train scenarios, full val, at most 50 epochs. It checks that training works and measures time per epoch; its numbers are not reported. If the projected time of all runs does not fit before 2026-11-03, reductions are made in this order and recorded as version 4 before the main runs: (1) drop the additional mode; (2) use the hyperparameters selected at 10 Hz for all frequencies. Nothing else is changed on this basis.
@@ -68,3 +68,8 @@ Version 2 was fixed on 2026-10-26 (commit `82ce880`, tag `protocol-v2`) and vers
 ## Changes in version 3 (after data processing, before any model was trained)
 1. Motion types: the direction at t = 0 is the dataset heading (version 2: displacement over the last 0.5 s of history, not defined for slow agents). The final direction uses the last 2 m of the future path (version 2: displacement over the last 0.5 s of the future). The quality check on 2026-10-27 showed that a short final stretch assigns stopped vehicles to turns when their recorded position drifts backward. A new group, undefined, holds agents without a 2 m final stretch and is not used in H2.
 2. Timing run and the order of possible reductions written out.
+
+## Changes in version 4 (after the timing run, before the main runs)
+1. Inputs: the timing run (`results/runs/timing_f10.json`, 2,000 train scenarios) showed that the 10 Hz model with positions as the only input did not learn to use velocity: val ADE stayed at 12.3 m, against 4.3 m for CV. At 10 Hz the step between neighbouring points is about 0.06 in standardized units, too small for the model to pick up. The step from the previous retained point is added as an input, and inputs are standardized per frequency and mode, because steps at 1 Hz are ten times longer than at 10 Hz. `configs/norm_stats.json` is no longer used. A check run with 20,000 train scenarios (`results/runs/check_inputs_f10.json`) reached val ADE 3.2 m. Version 3 allowed only reductions after the timing run; this change goes beyond that and is made because training did not work. No main run had been made and the test set was not used.
+2. Early stopping starts after epoch 10, since both runs spent their first epochs on a plateau.
+3. The timing run showed that all runs fit before 2026-11-03, so no reductions are made: the additional mode and the per-frequency grid stay.

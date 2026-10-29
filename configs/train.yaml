@@ -1,4 +1,4 @@
-# training protocol v2, frozen before the main runs
+# training protocol v4, frozen before the main runs
 
 data:
   subset_list: configs/train_subset.txt
@@ -17,15 +17,15 @@ modes: [window, last5]
 
 normalization:
   frame: agent  # origin at last observed point, x along heading at t 0
-  inputs: zscore  # per coordinate, stats from 10 Hz train histories
-  stats_file: configs/norm_stats.json
+  features: [x, y, dx, dy]  # positions and steps from the previous retained point
+  inputs: zscore  # per feature, stats from train histories of the same frequency and mode
   targets: meters
 
 model:
   rnn: lstm
   num_layers: 1
   decoder: linear
-  input_size: 2
+  input_size: 4
   output_points: 60
 
 training:
@@ -34,6 +34,7 @@ training:
   loss: ade
   max_epochs: 50
   patience: 5
+  min_epochs: 10  # no early stop before this epoch
   checkpoint: best_val_ade
   shuffle_each_epoch: true
   deterministic: true
