@@ -56,6 +56,12 @@ def main():
             extra = (stats["std_share"] > cfg["seeds"]["extra_rule_cv"]).any()
             print("seeds 6-10 needed for all frequencies" if extra else "seeds 6-10 not needed")
 
+    # the rule above uses seeds 1-5 only, this table shows every main run
+    all_seeds = df[(df["mode"] == "window") & df["seed"].isin(main_seeds + cfg["seeds"]["extra"])]
+    if all_seeds["seed"].isin(cfg["seeds"]["extra"]).any():
+        print("\nmain runs, val ADE over all seeds")
+        print(all_seeds.groupby("freq")["best_val_ade"].agg(["count", "mean", "std", "min", "max"]).sort_index(ascending=False).round(3).to_string())
+
     last5 = df[df["mode"] == "last5"]
     if not last5.empty:
         print("\nadditional mode, val ADE")
