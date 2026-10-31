@@ -1,0 +1,5 @@
+grouping,group,min_sufficient_freq
+all,all,5
+road_user,pedestrian,5
+road_user,two_wheeler,5
+road_user,vehicle,5
