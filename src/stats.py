@@ -1,8 +1,12 @@
 import argparse
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 RESULTS = Path("results")
 FREQS = [10, 5, 2, 1]
@@ -12,6 +16,12 @@ LEVEL_MAIN = 1 - 0.05 / 8
 LEVEL_DESC = 0.95
 MARGIN = 0.05
 MIN_GROUP = 300
+SENSITIVITY = [(10, 30), (20, 60)]
+TABLES = RESULTS / "tables"
+FIGURES = Path("figures")
+MODEL_ROWS = [("cv", "window"), ("ca", "window"), ("rnn", "window"), ("rnn", "last5"),
+              ("rnn10_linear", "window"), ("rnn10_zero_order_hold", "window"), ("rnn10_naive", "window")]
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
 
 # the 8 primary comparisons, side says where the interval has to lie for the part to be supported
 PRIMARY = [
@@ -60,13 +70,10 @@ def build_conditions(kin, rnn):
     return ids, scen, cond
 
 
-def best_kinematic(kin, column, value):
-    # better of cv and ca on the validation subset, per group and frequency
-    val = kin[kin["split"] == "val"]
-    if column is not None:
-        val = val[val[column] == value]
+def best_kinematic(val):
+    # better of cv and ca on the validation scenarios of a group, per frequency
     means = val.groupby(["freq", "model"])["ade"].mean().unstack("model")
-    return means.idxmin(axis=1).to_dict(), means
+    return means.idxmin(axis=1).to_dict()
 
 
 def draw_seeds(cond, n_boot, rng):
@@ -122,8 +129,7 @@ def quantities(est, kin_choice, freq, mode="window"):
     return out
 
 
-def summarize_group(cond, cols, kin, column, value, seed_draws, n_boot, rng):
-    kin_choice, _ = best_kinematic(kin, column, value)
+def summarize_group(cond, cols, kin_choice, grouping, group, seed_draws, n_boot, rng):
     est = point(cond, cols)
     boot = bootstrap(cond, cols, seed_draws, n_boot, rng)
     rows = []
@@ -142,8 +148,8 @@ def summarize_group(cond, cols, kin, column, value, seed_draws, n_boot, rng):
                 rows.append(dict(quantity=q, model="rnn", freq=f, mode=mode, value=q_est[q], lo95=lo, hi95=hi,
                                  lo_main=lo_m, hi_main=hi_m, kin=kin_choice[f]))
     df = pd.DataFrame(rows)
-    df.insert(0, "group", value if column else "all")
-    df.insert(0, "grouping", column or "all")
+    df.insert(0, "group", group)
+    df.insert(0, "grouping", grouping)
     df["n"] = len(cols)
     return df
 
@@ -154,10 +160,12 @@ def decide(lo, hi, side, thr):
     return "supported" if lo > thr else "contradicted" if hi < thr else "inconclusive"
 
 
-def primary_table(summary):
+def primary_table(summary, motion_grouping="motion", only=None):
     rows = []
     for hyp, q, f, group, side, thr in PRIMARY:
-        grouping = "all" if group == "all" else "motion"
+        if only and hyp != only:
+            continue
+        grouping = "all" if group == "all" else motion_grouping
         r = summary[(summary["grouping"] == grouping) & (summary["group"] == group) & (summary["quantity"] == q)
                     & (summary["freq"] == f) & (summary["mode"] == "window")].iloc[0]
         result = decide(r["lo_main"], r["hi_main"], side, thr)
@@ -197,6 +205,112 @@ def min_sufficient(summary):
     return pd.DataFrame(rows)
 
 
+def angle_groups(angles, straight, turn):
+    # stationary and undefined agents keep their groups, only moving agents are split by the angle
+    out = {}
+    for split, a in angles.groupby("split"):
+        moving = a["motion"].isin(["straight", "turn", "intermediate"])
+        out[(split, "straight")] = set(a.loc[moving & (a["dpsi"] < straight), "scenario_id"])
+        out[(split, "turn")] = set(a.loc[moving & (a["dpsi"] > turn), "scenario_id"])
+    return out
+
+
+def fmt(r, scale=1, digits=2):
+    return f"{r['value'] * scale:.{digits}f} [{r['lo95'] * scale:.{digits}f}, {r['hi95'] * scale:.{digits}f}]"
+
+
+def main_table(summary):
+    # all road users, value and 95% interval for every model, metric and frequency
+    s = summary[summary["grouping"] == "all"]
+    rows = []
+    for model, mode in MODEL_ROWS:
+        for m, scale, digits in [("ade", 1, 2), ("fde", 1, 2), ("miss", 100, 1)]:
+            row = {"model": model, "mode": mode, "metric": "mr_percent" if m == "miss" else m}
+            for f in FREQS:
+                r = s[(s["model"] == model) & (s["mode"] == mode) & (s["quantity"] == m) & (s["freq"] == f)]
+                row[f"{f} Hz"] = fmt(r.iloc[0], scale, digits) if len(r) else ""
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def group_table(summary, grouping):
+    # per group, rnn and best kinematic ADE and the advantage A in percent, main mode
+    s = summary[(summary["grouping"] == grouping) & (summary["mode"] == "window")]
+    rows = []
+    for group, g in s.groupby("group"):
+        adv = g[g["quantity"] == "adv"].set_index("freq")
+        ade = g[g["quantity"] == "ade"]
+        lines = {"rnn ade": {}, "best kinematic ade": {}, "advantage %": {}}
+        for f in FREQS:
+            kin = adv.loc[f, "kin"]
+            lines["rnn ade"][f] = fmt(ade[(ade["model"] == "rnn") & (ade["freq"] == f)].iloc[0])
+            k = ade[(ade["model"] == kin) & (ade["freq"] == f)].iloc[0]
+            lines["best kinematic ade"][f] = f"{kin} {fmt(k)}"
+            lines["advantage %"][f] = fmt(adv.loc[f], 100, 1)
+        for name, cells in lines.items():
+            rows.append({"group": group, "n": g["n"].iloc[0], "row": name, **{f"{f} Hz": cells[f] for f in FREQS}})
+    return pd.DataFrame(rows)
+
+
+def errorbar_line(ax, x, rows, scale, **kw):
+    y = rows["value"].to_numpy() * scale
+    err = [y - rows["lo95"].to_numpy() * scale, rows["hi95"].to_numpy() * scale - y]
+    ax.errorbar(x, y, yerr=err, capsize=3, linewidth=2, markersize=7, **kw)
+
+
+def style(ax, ylabel):
+    ax.set_xticks(range(len(FREQS)), [f"{f} Hz" for f in FREQS])
+    ax.set_xlabel("History frequency")
+    ax.set_ylabel(ylabel)
+    ax.grid(axis="y", color="#e5e5e2", linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ["top", "right"]:
+        ax.spines[side].set_visible(False)
+    ax.legend(frameon=False)
+
+
+def save(fig, path):
+    fig.tight_layout()
+    fig.savefig(path.with_suffix(".png"), dpi=300)
+    fig.savefig(path.with_suffix(".pdf"))
+    plt.close(fig)
+
+
+def pick(s, model, quantity, freqs, mode="window"):
+    r = s[(s["model"] == model) & (s["mode"] == mode) & (s["quantity"] == quantity)].set_index("freq")
+    return r.loc[freqs]
+
+
+def plot_ade(summary, path):
+    s = summary[summary["grouping"] == "all"]
+    x = np.arange(len(FREQS))
+    fig, ax = plt.subplots(figsize=(5.5, 3.6))
+    kin = s[(s["quantity"] == "adv") & (s["mode"] == "window")].set_index("freq").loc[FREQS, "kin"]
+    kin_rows = pd.concat([pick(s, k, "ade", [f]) for f, k in kin.items()])
+    errorbar_line(ax, x, pick(s, "rnn", "ade", FREQS), 1, color=COLORS[0], marker="o", label="RNN trained at each frequency")
+    # the 10 Hz model at 10 Hz is the same model, so the line starts from it
+    sparse = pd.concat([pick(s, "rnn", "ade", [10]), pick(s, "rnn10_linear", "ade", FREQS[1:])])
+    errorbar_line(ax, x, sparse, 1, color=COLORS[2], marker="^", linestyle=":", label="10 Hz RNN, linear interpolation")
+    errorbar_line(ax, x, kin_rows, 1, color=COLORS[1], marker="s", linestyle="--", label="Best of CV and CA")
+    ax.set_ylim(bottom=0)
+    style(ax, "ADE, m")
+    save(fig, path)
+
+
+def plot_advantage(summary, path):
+    s = summary[(summary["grouping"] == "motion") & (summary["mode"] == "window") & (summary["quantity"] == "adv")]
+    x = np.arange(len(FREQS))
+    fig, ax = plt.subplots(figsize=(5.5, 3.6))
+    for (group, label, marker), color in zip([("straight", "Straight", "o"), ("turn", "Turn", "s")], COLORS):
+        rows = s[s["group"] == group].set_index("freq").loc[FREQS]
+        errorbar_line(ax, x, rows, 100, color=color, marker=marker, label=label)
+    ax.axhline(MARGIN * 100, color="#6f6e69", linewidth=1, linestyle="--")
+    ax.text(len(FREQS) - 1, MARGIN * 100 + 0.8, "5% threshold", ha="right", va="bottom", fontsize=8, color="#6f6e69")
+    ax.set_ylim(bottom=0)
+    style(ax, "RNN advantage over kinematics, %")
+    save(fig, path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-boot", type=int, default=10000)
@@ -209,12 +323,25 @@ def main():
     seed_draws = draw_seeds(cond, args.n_boot, rng)
     print(f"{len(ids)} test scenarios, {len(cond)} conditions, {args.n_boot} resamples")
 
-    parts = [summarize_group(cond, np.arange(len(ids)), kin, None, None, seed_draws, args.n_boot, rng)]
+    val = kin[kin["split"] == "val"]
+    parts = [summarize_group(cond, np.arange(len(ids)), best_kinematic(val), "all", "all", seed_draws, args.n_boot, rng)]
     for column in ["road_user", "motion"]:
         for value in sorted(scen[column].unique()):
             cols = np.flatnonzero(scen[column].to_numpy() == value)
-            parts.append(summarize_group(cond, cols, kin, column, value, seed_draws, args.n_boot, rng))
+            choice = best_kinematic(val[val[column] == value])
+            parts.append(summarize_group(cond, cols, choice, column, value, seed_draws, args.n_boot, rng))
             print(f"  {column} {value}: {len(cols)} scenarios")
+
+    # sensitivity of H2 to the motion thresholds, run last so the main resamples stay as before
+    angles = pd.read_parquet(RESULTS / "motion_angles.parquet")
+    for straight, turn in SENSITIVITY:
+        groups = angle_groups(angles, straight, turn)
+        for name in ["straight", "turn"]:
+            cols = np.flatnonzero(np.isin(ids, list(groups[("test", name)])))
+            choice = best_kinematic(val[val["scenario_id"].isin(groups[("val", name)])])
+            grouping = f"motion_{straight}_{turn}"
+            parts.append(summarize_group(cond, cols, choice, grouping, name, seed_draws, args.n_boot, rng))
+            print(f"  {grouping} {name}: {len(cols)} scenarios")
     summary = pd.concat(parts, ignore_index=True)
     summary.to_csv(RESULTS / "stats_summary.csv", index=False)
 
@@ -230,7 +357,22 @@ def main():
     msf.to_csv(RESULTS / "min_sufficient_freq.csv", index=False)
     print("\nminimum sufficient frequency")
     print(msf.to_string(index=False))
-    print(f"\nsaved stats_summary.csv, primary_comparisons.csv, min_sufficient_freq.csv to {RESULTS}")
+
+    sens = pd.concat([primary_table(summary, g, only="H2").assign(thresholds=g.replace("motion_", "").replace("_", "/"))
+                      for g in ["motion"] + [f"motion_{s}_{t}" for s, t in SENSITIVITY]], ignore_index=True)
+    sens["thresholds"] = sens["thresholds"].replace("motion", "15/45")
+    sens.to_csv(RESULTS / "sensitivity_h2.csv", index=False)
+    print(f"\nH2 with other motion thresholds, {LEVEL_MAIN:.2%} intervals")
+    print(sens[["thresholds", "freq", "group", "n", "value", "lo", "hi", "result"]].round(4).to_string(index=False))
+
+    TABLES.mkdir(exist_ok=True)
+    main_table(summary).to_csv(TABLES / "table_main.csv", index=False)
+    group_table(summary, "road_user").to_csv(TABLES / "table_road_user.csv", index=False)
+    group_table(summary, "motion").to_csv(TABLES / "table_motion.csv", index=False)
+    FIGURES.mkdir(exist_ok=True)
+    plot_ade(summary, FIGURES / "ade_by_frequency")
+    plot_advantage(summary, FIGURES / "advantage_by_motion")
+    print(f"\nsaved csv files to {RESULTS} and {TABLES}, figures to {FIGURES}")
 
 
 if __name__ == "__main__":
