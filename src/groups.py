@@ -14,6 +14,8 @@ def road_user_group(types):
 
 def heading_change(xy, heading, min_dist=2.0):
     # start direction is the dataset heading at t 0, end direction is the last stretch of at least min_dist meters
+    if not np.isfinite(heading).all():
+        raise ValueError("heading has non finite values")
     fut = xy[:, LAST_OBS:]
     end = fut[:, -1]
     far = np.linalg.norm(fut - end[:, None], axis=2) >= min_dist

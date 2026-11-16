@@ -196,6 +196,9 @@ def min_sufficient(summary):
     for (grouping, group), g in d.groupby(["grouping", "group"]):
         if grouping not in ("all", "road_user") or g["n"].iloc[0] < MIN_GROUP:
             continue
+        # a missing frequency or bound would let a lower frequency pass unchecked
+        if sorted(g["freq"]) != sorted(FREQS[1:]) or g["hi95"].isna().any():
+            raise SystemExit(f"{grouping} {group}: delta is not available at every frequency")
         best = None
         for f in sorted(g["freq"], reverse=True):
             if g.loc[g["freq"] == f, "hi95"].iloc[0] >= MARGIN:
