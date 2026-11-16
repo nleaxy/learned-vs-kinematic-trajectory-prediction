@@ -275,7 +275,8 @@ def style(ax, ylabel):
 def save(fig, path):
     fig.tight_layout()
     fig.savefig(path.with_suffix(".png"), dpi=300)
-    fig.savefig(path.with_suffix(".pdf"))
+    # no creation date, so a rerun gives the same file
+    fig.savefig(path.with_suffix(".pdf"), metadata={"CreationDate": None})
     plt.close(fig)
 
 

@@ -30,7 +30,8 @@ def finish(fig, ax, ylabel, path):
         ax.spines[side].set_visible(False)
     ax.legend(frameon=False, handlelength=2.6)
     fig.savefig(path.with_suffix(".png"), dpi=600)
-    fig.savefig(path.with_suffix(".pdf"))
+    # no creation date, so a rerun gives the same file
+    fig.savefig(path.with_suffix(".pdf"), metadata={"CreationDate": None})
     plt.close(fig)
 
 
