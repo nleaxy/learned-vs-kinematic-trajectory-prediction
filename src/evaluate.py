@@ -91,6 +91,7 @@ def main():
                     "scenario_id": s["ids"], "split": split, "model": name, "freq": freq, "mode": mode,
                     "seed": r["seed"], "road_user": s["road_user"], "motion": s["motion"],
                     "ade": ade.round(3).astype(np.float32), "fde": fde.round(3).astype(np.float32),
+                    # miss uses the unrounded fde, the stored fde is rounded to millimeters
                     "miss": fde > 2.0,
                 }))
                 if name == "rnn" and split == "val":
