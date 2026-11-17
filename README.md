@@ -2,9 +2,6 @@
 
 Code, configuration and per-scenario results for the paper of the same name.
 
-- Paper: submitted to Periodica Polytechnica Transportation Engineering (under review)
-- Preprint: arXiv link will be added here
-
 ## Question
 
 A trajectory predictor sees the past positions of a road user and forecasts the next 6 s. In vehicle-to-everything (V2X) communication these positions may arrive less often than the 10 Hz of common datasets. We train an LSTM on the history of the focal agent of Argoverse 2 at 10, 5, 2 and 1 Hz and compare it with constant velocity (CV) and constant acceleration (CA) models. No maps and no neighbouring agents are used.
