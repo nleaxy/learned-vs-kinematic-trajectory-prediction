@@ -2,6 +2,8 @@
 
 Code, configuration and per-scenario results for the paper of the same name.
 
+Preprint: [arXiv:2611.23198](https://arxiv.org/abs/2611.23198)
+
 ## Question
 
 A trajectory predictor sees the past positions of a road user and forecasts the next 6 s. In vehicle-to-everything (V2X) communication these positions may arrive less often than the 10 Hz of common datasets. We train an LSTM on the history of the focal agent of Argoverse 2 at 10, 5, 2 and 1 Hz and compare it with constant velocity (CV) and constant acceleration (CA) models. No maps and no neighbouring agents are used.
@@ -128,4 +130,14 @@ Argoverse 2 is distributed under CC BY-NC-SA 4.0 and the Argoverse terms of use.
 
 ## Citation
 
-Will be added after the preprint is published.
+```bibtex
+@misc{gadzhiev2026learned,
+  title         = {Learned versus Kinematic Trajectory Prediction under Reduced Observation Frequency},
+  author        = {Gadzhiev, Nukhbala and Morochko, Alexander},
+  year          = {2026},
+  eprint        = {2611.23198},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  doi           = {10.48550/arXiv.2611.23198}
+}
+```
